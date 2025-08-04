@@ -126,6 +126,7 @@ export function Chat({ messages, onSendMessage, isLoading }: ChatProps) {
                     onKeyDown={handleKeyDown}
                     onCompositionStart={() => setIsComposing(true)}
                     onCompositionEnd={() => setIsComposing(false)}
+                    suppressHydrationWarning
                   />
                 </div>
                 <button
