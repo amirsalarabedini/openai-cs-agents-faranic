@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -78,6 +78,22 @@ class ChatResponse(BaseModel):
     agents: List[Dict[str, Any]]
     guardrails: List[GuardrailCheck] = []
 
+
+class User(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    username: str
+    full_name: Optional[str] = None
+
 # =========================
 # In-memory store for conversation state
 # =========================
@@ -100,6 +116,32 @@ class InMemoryConversationStore(ConversationStore):
 
 # TODO: when deploying this app in scale, switch to your own production-ready implementation
 conversation_store = InMemoryConversationStore()
+
+# =========================
+# In-memory user management
+# =========================
+
+
+class UserStore:
+    _users: Dict[str, User] = {}
+
+    def create(self, user: User):
+        if user.username in self._users:
+            raise ValueError("User already exists")
+        self._users[user.username] = user
+
+    def authenticate(self, username: str, password: str) -> bool:
+        u = self._users.get(username)
+        return bool(u) and u.password == password
+
+    def list(self) -> List[UserResponse]:
+        return [
+            UserResponse(username=u.username, full_name=u.full_name)
+            for u in self._users.values()
+        ]
+
+
+user_store = UserStore()
 
 # =========================
 # Helpers
@@ -146,6 +188,31 @@ def _build_agents_list() -> List[Dict[str, Any]]:
         make_agent_dict(flight_status_agent),
         make_agent_dict(cancellation_agent),
     ]
+
+# =========================
+# User Management Endpoints
+# =========================
+
+
+@app.post("/users", response_model=UserResponse)
+def create_user(user: User):
+    try:
+        user_store.create(user)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="User already exists")
+    return UserResponse(username=user.username, full_name=user.full_name)
+
+
+@app.get("/users", response_model=List[UserResponse])
+def list_users():
+    return user_store.list()
+
+
+@app.post("/login")
+def login(user: UserLogin):
+    if user_store.authenticate(user.username, user.password):
+        return {"success": True}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
 # =========================
 # Main Chat Endpoint
